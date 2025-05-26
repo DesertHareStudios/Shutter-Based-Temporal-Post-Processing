@@ -1,0 +1,22 @@
+{
+    "name": "com.desertharestudios.sbtpp",
+    "version": "0.1.0",
+    "displayName": "Shutter Based Temporal Post-Processing",
+    "description": "Framerate-aware physical camera post-processing for Unity's Universal Render Pipeline",
+    "unity": "6000.0",
+    "dependencies": {
+        "com.unity.render-pipelines.universal": "17.0.4"
+    },
+    "keywords": [
+        "physical",
+        "camera",
+        "post-processing",
+        "taa",
+        "temporal"
+    ],
+    "author": {
+        "name": "Desert Hare Studios",
+        "email": "dharestudios@gmail.com",
+        "url": "https://desertharestudios.github.io/"
+    }
+}
