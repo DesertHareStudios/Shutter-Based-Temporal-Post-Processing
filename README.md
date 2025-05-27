@@ -10,9 +10,9 @@ Unlike TAA and other common temporal solutions, SBTPP only requires the color bu
 
 * Open the Package Manager Window, if it's not already open
 * Open the **Add** (+) menu in the Package Manager's toolbar
-* Select **Install package from git URL** from the install menu. A text box and an *install* button appear.
+* Select **Install package from git URL** from the install menu. A text box and an **install** button appear.
 * Enter the following Git url in the text box:
-    * `https://github.com/DesertHareStudios/Shutter-Based-Temporal-Post-Processing.git`
+```https://github.com/DesertHareStudios/Shutter-Based-Temporal-Post-Processing.git#v0.1.0```
 * Select **Install**
 
 ## Requirements
