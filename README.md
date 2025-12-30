@@ -1,9 +1,11 @@
 # Shutter Based Temporal Post-Processing
 Framerate-aware physical camera post-processing for Unity's Universal Render Pipeline.
 
-Simulates a basic motion blur, depth of field, bloom, lens flares, exposure and some anti-aliasing using a custom temporal solution.
+Simulates a basic motion blur, depth of field and bloom using a custom temporal solution.
 
-Unlike TAA and other common temporal solutions, SBTPP only requires the color buffer and the current framerate to do its magic. No need for motion vectors nor depth buffer, making it suitable for mobile tiled-based GPUs.
+Unlike TAA and other common temporal solutions, SBTPP only requires the color & depth buffer and the current framerate to do its magic. No need for motion vectors, making it more friendly on your memory usage and bandwidth (like mobile tile-based GPUs).
+
+Although this is a temporal solution, it plays well with URP's TAA and Unity's Spatial Temporal Post-Processing which can enhance SBTPP's quality on more powerful devices.
 
 ## Installation instructions
 [Unity's official Package Manager installation instructions](https://docs.unity3d.com/Manual/upm-ui-giturl.html)
@@ -12,11 +14,11 @@ Unlike TAA and other common temporal solutions, SBTPP only requires the color bu
 * Open the **Add** (+) menu in the Package Manager's toolbar
 * Select **Install package from git URL** from the install menu. A text box and an **install** button appear.
 * Enter the following Git url in the text box:
-```https://github.com/DesertHareStudios/Shutter-Based-Temporal-Post-Processing.git#v0.1.0```
+```https://github.com/DesertHareStudios/Shutter-Based-Temporal-Post-Processing.git#v0.2.0```
 * Select **Install**
 
 ## Requirements
-This package is compatible only with **Unity 6/6.1** and the **Universal Render Pipeline**.
+This package is compatible only with **Unity 6.3** (The current LTS at the time) and the **Universal Render Pipeline**.
 
 > [!NOTE] 
 > SBTPP has only been tested on **DirectX 12** on **Windows**, **Vulkan** on **Android** and **WebGPU**. While we believe other platforms shouldn't have any issue, keep in mind that this is still an experimental package.
@@ -27,51 +29,25 @@ To prevent undesired ghosting and excesive motion blur. SBTPP tests your current
 
 To ensure the best quality, make sure you game/app is properly optimized and play around with different `Shutter Speed` values.
 
-### Depth of Field without Depth Buffer
-The depth of field effect is simulated through camera jitter and temporal accumulation. While this works in most cases, sometimes you can notice excessive jittering on certain combinations of `Aperture`, `Shutter Speed`, `Focus Distance` and framerate.
-
-You can easily "disable" Depth of Field with the `Additional Settings` volume by lowering the `Max Aperture Jitter Allowed` value.
+### Motion Blur without Motion Vectors
+The motion blur effect is achieved with simple alpha blending of the current frame against the history buffer using **Interleaved Gradient Noise** to dither the calculated intensity from the `Shutter Speed` and current framerate to hide any "step" artifacts. The Depth of Field and Bloom effects slighty hide the pixel artifacts but can still be seen on some cases.
 
 ## Workflow
 * Locate your current `Universal Renderer` asset. (You can find it easier by checking your `Universal Render Pipeline` asset)
 * Add the `Shutter Based Temporal Post-Processing` render feature.
 * Add the `Shutter Camera` component to any `Camera` you wish to enable SBTPP for.
 
-> [!NOTE]
-> Any `Camera` that doesn't have the `Shutter Camera` component (Including the scene view camera) will still simulate exposure.
-
 Using `Volume Profiles`, you can change the physical properties of your camera. If you camera has `usePhysicalProperties` set to `true`, SBTPP will use those settings instead unless explicitly specified by the `Physical Camera` volume.
-
-### Exposure
-The `Exposure` volume allows you to easily control the camera exposure.
-
-#### Desired Exposure
-This is the desired exposure you wish to achieve using the selected `Exposure Mode`
-
-#### Exposure Mode
-* **Do Nothing**
-  * SBTPP won't do anything to reach the desired exposure. The exposure will be calculated with the current physical settings as they are.
-* **Override ISO**
-  * SBTPP will override the current ISO value to reach the desired exposure, leaving the aperture and shutter speed as they are.
-* **Override Aperture**
-  * SBTPP will override the current aperture value to reach the desired exposure, leaving the ISO and shutter speed as they are.
-* **Override Shutter Speed**
-  * SBTPP will override the current shutter speed value to reach the desired exposure, leaving the ISO and shutter speed as they are.
 
 ### Physical Camera
 
 #### Camera Body
 Settings for your camera's light sensor
 
-* ISO
-  * The camera's light sensor sensitivity.
-  * Affects:
-    * Exposure
-* Shutter Speed
-  * The ammount of time (seconds) the camera's sensor is capturing light.
+* Shutter Angle
+  * Calculates the appropiate shutter speed according to the current VSync Count, `Application.targetFrameRate` and screen refresh rate.
   * Affects:
     * Temporal Accumulation Factor
-    * Exposure
     * Motion Blur
 
 #### Lens
@@ -84,32 +60,10 @@ Controls how the camera focuses light.
 * Aperture
   * The f-stop number, the physical size of the lens aperture.
   * Affects:
-    * Exposure
     * Depth of Field
-    * Bloom and lens flares
-
-#### Aperture Shape
-Controls the shape of the depth of field and bokeh.
-
-* Blades
-  * The ammount of blades of the lens.
+    * Bloom
+* Depth of Field Resolution
+  * The resolution scale of the blur texture and circle of confusion prepass
   * Affects:
     * Depth of Field
-* Min Blade Curvature
-  * The aperture value at which the blades are fully curved.
-  * Affects:
-    * Depth of Field
-* Max Blade Curvature
-  * The aperture value at which the blades are completely visible.
-  * Affects:
-    * Depth of Field
-
-### Additional Settings
-Extra settings to control potential undesired effects.
-
-* Max Aperture Jitter Allowed
-  * The maximum intensity allowed for aperture jitter. A value of 0 disables Depth of Field completely
-* Max Pixel Jitter Allowed
-  * The maximum intensity allowed for TAA pixel jitter, a value of 0 disables any anti-aliasing attempt.
-* Enable Lens Flare
-  * Optional lens flares on top of bloom. Feel free to play around with this value according to your game/app needs and artstyle.
+    * Bloom

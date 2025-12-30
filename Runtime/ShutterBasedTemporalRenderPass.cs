@@ -3,46 +3,117 @@ using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.Rendering.RenderGraphModule;
+using UnityEngine.Rendering.RenderGraphModule.Util;
 
 namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
-    internal class ShutterBasedTemporalRenderPass : ShutterBasedBaseRenderPass {
-        private const string LENSFLARES = "SBTPP_LENS_FLARES";
+    internal class ShutterBasedTemporalRenderPass : ScriptableRenderPass {
+        private const string AccumulationName = "_SBTPPAccum";
+        private static readonly int AccumulationID = Shader.PropertyToID(AccumulationName);
 
-        private const string TargetHandle = "_SBTPPTarget";
-        
-        private const string DownscaledName = "_SBTPPDown";
-        private static readonly int DownscaledID = Shader.PropertyToID(DownscaledName);
+        private const string CoCName = "_SBTPPCoC";
+        private static readonly int CoCID = Shader.PropertyToID(CoCName);
 
-        private const string HistoryName = "_SBTPPHistory";
-        private static readonly int HistoryID = Shader.PropertyToID(HistoryName);
+        private const string ShutterInfoName = "_ShutterInfo";
+        private static readonly int ShutterInfoID = Shader.PropertyToID(ShutterInfoName);
 
-        private const string DownscaledHistoryName = "_SBTPPDownHistory";
-        private static readonly int DownscaledHistoryID = Shader.PropertyToID(DownscaledHistoryName);
+        private const string ShutterScreenInfoName = "_ShutterScreenInfo";
+        private static readonly int ShutterScreenInfoID = Shader.PropertyToID(ShutterScreenInfoName);
 
-        private RTHandle history = RTHandles.Alloc(HistoryID, HistoryName);
+        private static readonly GraphicsFormat[] AccumulationFormatList = {
+            GraphicsFormat.R16G16B16A16_SFloat,
+            GraphicsFormat.B10G11R11_UFloatPack32,
+            GraphicsFormat.R8G8B8A8_UNorm,
+            GraphicsFormat.B8G8R8A8_UNorm
+        };
+
+        private static readonly GraphicsFormat[] AccumulationFormatListSDR = {
+            GraphicsFormat.R8G8B8A8_UNorm,
+            GraphicsFormat.B8G8R8A8_UNorm
+        };
+
+        private static readonly GraphicsFormat[] AccumulationFormatListAlpha = {
+            GraphicsFormat.R16G16B16A16_SFloat,
+            GraphicsFormat.R8G8B8A8_UNorm,
+            GraphicsFormat.B8G8R8A8_UNorm
+        };
+
+        private static readonly GraphicsFormat[] AccumulationFormatListAlphaSDR = {
+            GraphicsFormat.R8G8B8A8_UNorm,
+            GraphicsFormat.B8G8R8A8_UNorm
+        };
+
+        private RTHandle accumulation = RTHandles.Alloc(AccumulationID, AccumulationName);
+
+        //Intensity, Focus Distance, FrameIndex, Scattering
+        public Vector4 ShutterInfo = Vector4.zero;
+
+        public int dofResolutionDownscaler = 2;
+
+        //uvscale.x, uvscale.y, texelsize.x, texelsize.y
+        private Vector4 ShutterScreenInfo = Vector4.one;
+        public Material material;
+        public Material preMaterial;
+
+        public ShutterBasedTemporalRenderPass(ShutterBasedTemporalPostProcessingData data) {
+            ConfigureInput(ScriptableRenderPassInput.Color);
+            renderPassEvent = RenderPassEvent.AfterRenderingTransparents;
+            preMaterial = new Material(data.prepassShader);
+            material = new Material(data.sbtppShader);
+        }
 
         public void Dispose() {
-            history.Release();
+            accumulation.Release();
+        }
+
+        protected class CopyPassData {
+            public TextureHandle source;
+            public TextureHandle target;
         }
 
         private class PassData {
             public TextureHandle source;
-            public TextureHandle downscaled;
-            public TextureHandle history;
-            public TextureHandle historyDownscaled;
+            public TextureHandle coc;
             public Material material;
-            public Vector4 info;
-            public bool lensFlares;
         }
 
-        protected override void OnRenderGraph(RenderGraph renderGraph, ContextContainer frameData) {
+
+        protected static void ExecuteCopyPass(CopyPassData data, RasterGraphContext context) {
+            Blitter.BlitTexture(context.cmd, data.source, Vector2.one, 0f, true);
+        }
+
+        private static void AddCopyPass(RenderGraph renderGraph, TextureHandle from,
+            TextureHandle to,
+            string name = "Copy") {
+            using var builder = renderGraph.AddRasterRenderPass<CopyPassData>(name, out var passData);
+            passData.source = from;
+            passData.target = to;
+            builder.UseTexture(passData.source);
+            builder.SetRenderAttachment(passData.target, 0);
+            builder.SetRenderFunc((CopyPassData data, RasterGraphContext context) =>
+                ExecuteCopyPass(data, context));
+        }
+
+        static void ExecutePass(PassData data, RasterGraphContext context) {
+            data.material.SetTexture(CoCID, data.coc);
+            Blitter.BlitTexture(context.cmd, data.source, Vector2.one, data.material, 0);
+        }
+
+        private static void AddPass(RenderGraph renderGraph, Material material,
+            TextureHandle from, TextureHandle to, TextureHandle coc, string name = "Pass") {
+            using var builder = renderGraph.AddRasterRenderPass<PassData>(name, out var passData);
+            passData.source = from;
+            passData.coc = coc;
+            passData.material = material;
+            builder.UseTexture(passData.source);
+            builder.UseTexture(passData.coc);
+            builder.SetRenderAttachment(to, 0);
+            builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
+                ExecutePass(data, context));
+        }
+
+        public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData) {
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
-            UniversalResourceData resourceData = frameData.Get<UniversalResourceData>()
-                ;
-            var stack = VolumeManager.instance.stack;
-            // PhysicalCamera physicalCamera = stack.GetComponent<PhysicalCamera>();
-            // Exposure exposure = stack.GetComponent<Exposure>();
-            AdditionalSettings settings = stack.GetComponent<AdditionalSettings>();
+            UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
 
             var desc = cameraData.cameraTargetDescriptor;
             desc.msaaSamples = 1;
@@ -58,103 +129,70 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
 
             if (!SystemInfo.IsFormatSupported(desc.graphicsFormat, GraphicsFormatUsage.Render)) {
                 desc.graphicsFormat = GraphicsFormat.None;
-                for (int i = 0; i < AccumulationFormatList.Length; i++)
-                    if (SystemInfo.IsFormatSupported(AccumulationFormatList[i], GraphicsFormatUsage.Render)) {
-                        desc.graphicsFormat = AccumulationFormatList[i];
+
+                if (cameraData.isHdrEnabled) {
+                    foreach (var t in AccumulationFormatList)
+                        if (SystemInfo.IsFormatSupported(t, GraphicsFormatUsage.Render)) {
+                            desc.graphicsFormat = t;
+                            break;
+                        }
+                }
+                else {
+                    foreach (var t in AccumulationFormatListSDR)
+                        if (SystemInfo.IsFormatSupported(t, GraphicsFormatUsage.Render)) {
+                            desc.graphicsFormat = t;
+                            break;
+                        }
+                }
+            }
+
+            RenderingUtils.ReAllocateHandleIfNeeded(ref accumulation, desc, FilterMode.Bilinear, TextureWrapMode.Mirror,
+                name: AccumulationName);
+
+            var accumulationHandle = renderGraph.ImportTexture(accumulation);
+
+            desc.graphicsFormat = GraphicsFormat.None;
+            if (cameraData.isHdrEnabled) {
+                foreach (var t in AccumulationFormatListAlpha)
+                    if (SystemInfo.IsFormatSupported(t, GraphicsFormatUsage.Render)) {
+                        desc.graphicsFormat = t;
+                        break;
+                    }
+            }
+            else {
+                foreach (var t in AccumulationFormatListAlphaSDR)
+                    if (SystemInfo.IsFormatSupported(t, GraphicsFormatUsage.Render)) {
+                        desc.graphicsFormat = t;
                         break;
                     }
             }
 
-            var targetHandle = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, TargetHandle, false,
+            desc.width /= dofResolutionDownscaler;
+            desc.height /= dofResolutionDownscaler;
+
+            ShutterScreenInfo.x = 1f / desc.width;
+            ShutterScreenInfo.y = 1f / desc.height;
+            ShutterScreenInfo.z = 0.5f / desc.width;
+            ShutterScreenInfo.w = 0.5f / desc.height;
+
+            TextureHandle prepassHandle = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, CoCName, false,
                 FilterMode.Bilinear);
 
-            RenderingUtils.ReAllocateHandleIfNeeded(ref history, desc, FilterMode.Bilinear, TextureWrapMode.Clamp,
-                name: HistoryName);
+            preMaterial.SetVector(ShutterInfoID, ShutterInfo);
+            preMaterial.SetVector(ShutterScreenInfoID, ShutterScreenInfo);
 
-            var historyHandle = renderGraph.ImportTexture(history);
+            RenderGraphUtils.BlitMaterialParameters cocParameters =
+                new(resourceData.activeColorTexture, prepassHandle, preMaterial, 0);
+            renderGraph.AddBlitPass(cocParameters, "SBTPP CoC");
 
-            desc.width /= 2;
-            desc.height /= 2;
+            material.SetVector(ShutterInfoID, ShutterInfo);
+            material.SetVector(ShutterScreenInfoID, ShutterScreenInfo);
 
-            var downscaledHandle = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, DownscaledName, false,
-                FilterMode.Bilinear);
+                AddPass(renderGraph, material, resourceData.activeColorTexture, accumulationHandle, prepassHandle,
+                    "Shutter Based Temporal Post-Processing");
 
-            var downscaledHistoryHandle = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc,
-                DownscaledHistoryName, false,
-                FilterMode.Bilinear);
-
-            using (var builder =
-                   renderGraph.AddRasterRenderPass<CopyPassData>("SBTPP Downscale", out var passData)) {
-                passData.source = resourceData.activeColorTexture;
-                builder.UseTexture(passData.source);
-                builder.SetRenderAttachment(downscaledHandle, 0);
-                builder.SetRenderFunc((CopyPassData data, RasterGraphContext context) =>
-                ExecuteCopyPass(data, context));
-            }
-
-            using (var builder =
-                   renderGraph.AddRasterRenderPass<CopyPassData>("SBTPP History Downscale",
-                       out var passData)) {
-                passData.source = historyHandle;
-                builder.UseTexture(passData.source);
-                builder.SetRenderAttachment(downscaledHistoryHandle, 0);
-                builder.SetRenderFunc((CopyPassData data, RasterGraphContext context) =>
-                    ExecuteCopyPass(data, context));
-            }
-
-            using (var builder =
-                   renderGraph.AddRasterRenderPass<PassData>("Shutter Based Temporal Post-Processing",
-                       out var passData)) {
-                passData.source = resourceData.activeColorTexture;
-                passData.downscaled = downscaledHandle;
-                passData.history = historyHandle;
-                passData.historyDownscaled = downscaledHistoryHandle;
-                passData.material = material;
-                passData.info = ShutterInfo;
-                passData.lensFlares = settings.enableLensFlares.value;
-                builder.UseTexture(passData.source);
-                builder.UseTexture(passData.downscaled);
-                builder.UseTexture(passData.history);
-                builder.UseTexture(passData.historyDownscaled);
-                builder.SetRenderAttachment(targetHandle, 0);
-                builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
-                    ExecutePass(data, context));
-            }
-
-            using (var builder =
-                   renderGraph.AddRasterRenderPass<CopyPassData>("SBTPP Copy History",
-                       out var passData)) {
-                passData.source = targetHandle;
-                builder.UseTexture(passData.source);
-                builder.SetRenderAttachment(historyHandle, 0);
-                builder.SetRenderFunc((CopyPassData data, RasterGraphContext context) =>
-                    ExecuteCopyPass(data, context));
-            }
-
-            using (var builder =
-                   renderGraph.AddRasterRenderPass<CopyPassData>("SBTPP Output",
-                       out var passData)) {
-                passData.source = targetHandle;
-                builder.UseTexture(passData.source);
-                builder.SetRenderAttachment(resourceData.activeColorTexture, 0);
-                builder.SetRenderFunc((CopyPassData data, RasterGraphContext context) =>
-                    ExecuteCopyPass(data, context));
-            }
-        }
-
-        static void ExecutePass(PassData data, RasterGraphContext context) {
-            Shader.SetGlobalTexture(HistoryID, data.history);
-            Shader.SetGlobalTexture(DownscaledID, data.downscaled);
-            Shader.SetGlobalTexture(DownscaledHistoryID, data.historyDownscaled);
-            Shader.SetGlobalVector(ShutterInfoID, data.info);
-            if (data.lensFlares) {
-                Shader.EnableKeyword(LENSFLARES);
-            }
-            else {
-                Shader.DisableKeyword(LENSFLARES);
-            }
-
-            Blitter.BlitTexture(context.cmd, data.source, Vector4.one, data.material, 0);
+                AddCopyPass(renderGraph, accumulationHandle, resourceData.activeColorTexture,
+                    "SBTPP Copy Accumulation");
         }
     }
 }

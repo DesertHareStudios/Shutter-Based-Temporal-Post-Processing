@@ -12,8 +12,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 498da5a27214ed7488b25c8d1eb9cea6, type: 3}
   m_Name: SBTPP Data
   m_EditorClassIdentifier: 
-  downscaleMaterial: {fileID: -876546973899608171, guid: 8f7d7ba02e578764eb22929143ed0eaa, type: 3}
-  exposureOnlyMaterial: {fileID: -876546973899608171, guid: 0bb8e2e10e731a0449e64654879d90a4, type: 3}
-  bloomMaterial: {fileID: -876546973899608171, guid: 7a056d765e96b3f4580639aeea1b1a8b, type: 3}
-  blendMaterial: {fileID: -876546973899608171, guid: 627a625410d11164a9c61d0d10ff8e40, type: 3}
-  sbtppMaterial: {fileID: -876546973899608171, guid: ece85b0687c43c44ab3d688776f211e5, type: 3}
+  prepassShader: {fileID: -6465566751694194690, guid: 29270151f2770f641a80ecc5e568dae8, type: 3}
+  sbtppShader: {fileID: -6465566751694194690, guid: ece85b0687c43c44ab3d688776f211e5, type: 3}
