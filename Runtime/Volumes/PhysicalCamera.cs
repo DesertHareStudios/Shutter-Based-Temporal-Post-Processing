@@ -16,20 +16,32 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             Quarter = 4
         }
 
-        [Header("Camera Body")] public EnumParameter<DataSource> cameraBodySource = new(DataSource.PhysicalCamera);
+        public enum CoCTarget {
+            [InspectorName("Active Color (More stable, but lower quality blur)")]
+            ActiveColor = 0,
+            [InspectorName("History Buffer (Better blur, but prone to ghosting)")]
+            Accumulation = 1
+        }
+
+        [Header("Camera Body")] public EnumParameter<DataSource> cameraBodySource = new(DataSource.Volume);
+        [Tooltip("Calculates the appropiate shutter speed according to the current VSync Count, Application.targetFrameRate and screen refresh rate.")]
         public ClampedFloatParameter shutterAngle = new(0.5f, 0f, 1f);
 
         [Header("Lens")] public EnumParameter<DataSource> lensSource = new(DataSource.PhysicalCamera);
-        public MinFloatParameter focusDistance = new(333.333f, 0.1f);
         public ClampedFloatParameter aperture = new(3.2f, 0.7f, 32f);
-        public EnumParameter<Downscale> depthOfFieldResolution = new(Downscale.Half);
+        public EnumParameter<DataSource> focusDistanceSource = new(DataSource.PhysicalCamera);
+        public MinFloatParameter focusDistance = new(333.333f, 0.1f);
 
-        // [Header("Aperture Shape")]
-        // public EnumParameter<DataSource> apertureShapeSource = new(DataSource.PhysicalCamera);
-        //
-        // public ClampedIntParameter blades = new(5, 3, 11);
-        // public ClampedFloatParameter minBladeCurvature = new(2.1f, 0.7f, 32f);
-        // public ClampedFloatParameter maxBladeCurvature = new(8.3f, 0.7f, 32f);
+        [Header("Aperture Shape")]
+        public EnumParameter<DataSource> apertureShapeSource = new(DataSource.PhysicalCamera);
+        public ClampedIntParameter blades = new(5, 3, 11);
+        public ClampedFloatParameter minBladeCurvature = new(2.1f, 0.7f, 32f);
+        public ClampedFloatParameter maxBladeCurvature = new(8.3f, 0.7f, 32f);
+        
+        [Header("Settings")]
+        public EnumParameter<Downscale> depthOfFieldResolution = new(Downscale.Third);
+        [Tooltip("Which render texture to use for the depth of field blur prepass")]
+        public EnumParameter<CoCTarget> circleOfConfussionTarget = new(CoCTarget.ActiveColor);
 
         public float ShutterSpeed {
             get {
@@ -52,19 +64,19 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
 
         public LensData GetLensData(Camera source) {
             return new LensData {
-                focusDistance = (source.usePhysicalProperties && lensSource.value == DataSource.PhysicalCamera)
+                focusDistance = (source.usePhysicalProperties && focusDistanceSource.value == DataSource.PhysicalCamera)
                     ? source.focusDistance
                     : focusDistance.value,
                 aperture = (source.usePhysicalProperties && lensSource.value == DataSource.PhysicalCamera)
                     ? source.aperture
                     : aperture.value,
-                // blades = (source.usePhysicalProperties && apertureShapeSource.value == DataSource.PhysicalCamera)
-                //     ? source.bladeCount
-                //     : blades.value,
-                // bladeCurvature =
-                //     (source.usePhysicalProperties && apertureShapeSource.value == DataSource.PhysicalCamera)
-                //         ? source.curvature
-                //         : new Vector2(minBladeCurvature.value, maxBladeCurvature.value),
+                blades = (source.usePhysicalProperties && apertureShapeSource.value == DataSource.PhysicalCamera)
+                    ? source.bladeCount
+                    : blades.value,
+                bladeCurvature =
+                    (source.usePhysicalProperties && apertureShapeSource.value == DataSource.PhysicalCamera)
+                        ? source.curvature
+                        : new Vector2(minBladeCurvature.value, maxBladeCurvature.value),
                 shutterSpeed = (source.usePhysicalProperties && cameraBodySource.value == DataSource.PhysicalCamera)
                     ? source.shutterSpeed
                     : ShutterSpeed

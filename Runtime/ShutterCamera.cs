@@ -11,10 +11,9 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
 
         public static bool GetShutterCamera(Camera source, out ShutterCamera Out) {
             foreach (ShutterCamera camera in cameras) {
-                if (camera.target == source) {
-                    Out = camera;
-                    return true;
-                }
+                if (camera.target != source) continue;
+                Out = camera;
+                return true;
             }
 
             Out = null;
@@ -25,6 +24,7 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
         
         private Camera target;
         private UniversalAdditionalCameraData cameraData;
+        private Transform cameraTransform;
 
         internal ShutterBasedTemporalRenderPass pass { get; set; }
 
@@ -43,19 +43,21 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
             RenderPipelineManager.endCameraRendering -= OnEndCameraRendering;
             cameras.Remove(this);
-            if (pass != null) {
-                pass.Dispose();
-                pass = null;
-            }
+            if (pass == null) return;
+            pass.Dispose();
+            pass = null;
         }
 
         private float intensity;
         private Vector3 originalPosition;
         private Quaternion originalRotation;
+        private Vector2 apertureJitter = Vector2.zero;
+        private Vector3 focusPoint = Vector3.forward;
         private int frameIndex;
         private LensData lens;
         private float dt0, dt1, dt2, dt3, dt4, dt5, dt6;
         private float normalizedAperture = 0.5f;
+        private bool didJitter = false;
 
         private void OnBeginCameraRendering(ScriptableRenderContext ctx, Camera cam) {
             if (cam != target) {
@@ -63,6 +65,12 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             }
 
             if (pass == null) return;
+
+            cameraTransform = target.transform;
+            originalPosition = cameraTransform.position;
+            originalRotation = cameraTransform.rotation;
+            Vector3 up = cameraTransform.up;
+            didJitter = false;
 
             const float t = 7f / 6f;
             float predictedDeltaTime = Mathf.LerpUnclamped(dt6, dt5, t);
@@ -77,10 +85,11 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             lens = physicalSettings.GetLensData(target).Validate();
 
             pass.dofResolutionDownscaler = (int)physicalSettings.depthOfFieldResolution.value;
+            pass.cocTarget = physicalSettings.circleOfConfussionTarget.value;
 
-            // float focalLength = target.usePhysicalProperties
-            //     ? target.focalLength
-            //     : Camera.FieldOfViewToFocalLength(target.fieldOfView, 24f);
+            float focalLength = target.usePhysicalProperties
+                ? target.focalLength
+                : Camera.FieldOfViewToFocalLength(target.fieldOfView, 24f);
 
             frameIndex = (frameIndex + 1) % 1024;
             intensity = Mathf.Clamp01(1f - (predictedDeltaTime / lens.shutterSpeed));
@@ -91,7 +100,7 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             pass.ShutterInfo.z = frameIndex % 64;
             pass.ShutterInfo.w = normalizedAperture;
 
-            if (controlTemporalAntiAliasingSettings) {
+            if (controlTemporalAntiAliasingSettings && cameraData.antialiasing == AntialiasingMode.TemporalAntiAliasing) {
                 cameraData.taaSettings.baseBlendFactor = Mathf.LerpUnclamped(0.6f, 0.98f, intensity);
                 cameraData.taaSettings.jitterScale = 1f - (normalizedAperture * intensity);
                 cameraData.taaSettings.jitterScale *= cameraData.taaSettings.jitterScale;
@@ -101,29 +110,33 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
                 cameraData.taaSettings.varianceClampScale = Mathf.LerpUnclamped(0.6f, 1.2f, shutterMS / (shutterMS + 1f));
             }
 
-            // if (intensity <= 0f) return;
-            //
-            // apertureJitter.y = Mathf.Abs(Random.value * 0.5f);
-            // apertureJitter.y *= intensity * intensity;
-            // apertureJitter.y *= (focalLength / lens.aperture) / 2f;
-            // apertureJitter.y /= 1000f;
-            //
-            // if (apertureJitter.y <= 0f) return;
-            //
-            // apertureJitter.x = Random.value * 2f * Mathf.PI;
-            //
-            // float bladeCount = lens.blades;
-            // float curvature = lens.CurrentCurvature;
-            //
-            // float nt = Mathf.Cos(Mathf.PI / bladeCount);
-            // float dt = Mathf.Cos(apertureJitter.x - ((2f * Mathf.PI) / bladeCount) *
-            //     Mathf.Floor((bladeCount * apertureJitter.x + Mathf.PI) / (2f * Mathf.PI)));
-            // float r = apertureJitter.y * Mathf.Pow(nt / dt, curvature);
-            // float u = r * Mathf.Cos(apertureJitter.x);
-            // float v = r * Mathf.Sin(apertureJitter.x);
-            //
-            // apertureJitter.x = u;
-            // apertureJitter.y = v;
+            if (intensity <= 0f) return;
+            
+            apertureJitter.y = Mathf.Abs(Random.value * 0.5f);
+            apertureJitter.y *= intensity * intensity;
+            apertureJitter.y *= (focalLength / lens.aperture) / 2f;
+            apertureJitter.y /= 1000f;
+            
+            if (apertureJitter.y <= 0f) return;
+            
+            apertureJitter.x = Random.value * 2f * Mathf.PI;
+            
+            float bladeCount = lens.blades;
+            float curvature = lens.CurrentCurvature;
+            
+            float nt = Mathf.Cos(Mathf.PI / bladeCount);
+            float dt = Mathf.Cos(apertureJitter.x - ((2f * Mathf.PI) / bladeCount) *
+                Mathf.Floor((bladeCount * apertureJitter.x + Mathf.PI) / (2f * Mathf.PI)));
+            float r = apertureJitter.y * Mathf.Pow(nt / dt, curvature);
+            float u = r * Mathf.Cos(apertureJitter.x);
+            float v = r * Mathf.Sin(apertureJitter.x);
+            
+            apertureJitter.x = u;
+            apertureJitter.y = v;
+            focusPoint = cameraTransform.position + (cameraTransform.forward * lens.focusDistance);
+            cameraTransform.Translate(apertureJitter, Space.Self);
+            cameraTransform.LookAt(focusPoint, up);
+            didJitter = true;
         }
 
         private void OnEndCameraRendering(ScriptableRenderContext ctx, Camera cam) {
@@ -138,6 +151,11 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             dt2 = dt1;
             dt1 = dt0;
             dt0 = Time.unscaledDeltaTime;
+            
+            if (!didJitter) return;
+            
+            cameraTransform.position = originalPosition;
+            cameraTransform.rotation = originalRotation;
         }
     }
 }

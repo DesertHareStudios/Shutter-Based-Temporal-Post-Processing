@@ -14,7 +14,7 @@ Although this is a temporal solution, it plays well with URP's TAA and Unity's S
 * Open the **Add** (+) menu in the Package Manager's toolbar
 * Select **Install package from git URL** from the install menu. A text box and an **install** button appear.
 * Enter the following Git url in the text box:
-```https://github.com/DesertHareStudios/Shutter-Based-Temporal-Post-Processing.git#v0.2.0```
+```https://github.com/DesertHareStudios/Shutter-Based-Temporal-Post-Processing.git#v0.3.0```
 * Select **Install**
 
 ## Requirements
@@ -62,8 +62,30 @@ Controls how the camera focuses light.
   * Affects:
     * Depth of Field
     * Bloom
+
+#### Aperture Shape
+Controls the shape of the depth of field and bokeh.
+
+* Blades
+  * The ammount of blades of the lens.
+  * Affects:
+    * Depth of Field
+* Min Blade Curvature
+  * The aperture value at which the blades are fully curved.
+  * Affects:
+    * Depth of Field
+* Max Blade Curvature
+  * The aperture value at which the blades are completely visible.
+  * Affects:
+    * Depth of Field
+
+### Settings
 * Depth of Field Resolution
   * The resolution scale of the blur texture and circle of confusion prepass
   * Affects:
     * Depth of Field
     * Bloom
+* Circle of Confussion Target
+  * Which render texture to use for the depth of field blur prepass
+    * **Active Color**: Uses the current camera's color buffer (More stable, but lower quality blur)
+    * **History Buffer**: Uses the SBTPP accumulation buffer (Better blur, but prone to ghosting)

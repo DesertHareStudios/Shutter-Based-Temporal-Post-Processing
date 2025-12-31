@@ -46,13 +46,12 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
 
         //Intensity, Focus Distance, FrameIndex, Scattering
         public Vector4 ShutterInfo = Vector4.zero;
-
         public int dofResolutionDownscaler = 2;
-
-        //uvscale.x, uvscale.y, texelsize.x, texelsize.y
+        
         private Vector4 ShutterScreenInfo = Vector4.one;
-        public Material material;
-        public Material preMaterial;
+        public PhysicalCamera.CoCTarget cocTarget = PhysicalCamera.CoCTarget.Accumulation;
+        private Material material;
+        private Material preMaterial;
 
         public ShutterBasedTemporalRenderPass(ShutterBasedTemporalPostProcessingData data) {
             ConfigureInput(ScriptableRenderPassInput.Color);
@@ -75,7 +74,6 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             public TextureHandle coc;
             public Material material;
         }
-
 
         protected static void ExecuteCopyPass(CopyPassData data, RasterGraphContext context) {
             Blitter.BlitTexture(context.cmd, data.source, Vector2.one, 0f, true);
@@ -181,18 +179,21 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             preMaterial.SetVector(ShutterInfoID, ShutterInfo);
             preMaterial.SetVector(ShutterScreenInfoID, ShutterScreenInfo);
 
-            RenderGraphUtils.BlitMaterialParameters cocParameters =
-                new(resourceData.activeColorTexture, prepassHandle, preMaterial, 0);
+            RenderGraphUtils.BlitMaterialParameters cocParameters = new(cocTarget switch {
+                    PhysicalCamera.CoCTarget.ActiveColor => resourceData.activeColorTexture,
+                    PhysicalCamera.CoCTarget.Accumulation => accumulationHandle,
+                    _ => resourceData.activeColorTexture
+                }, prepassHandle, preMaterial, 0);
             renderGraph.AddBlitPass(cocParameters, "SBTPP CoC");
 
             material.SetVector(ShutterInfoID, ShutterInfo);
             material.SetVector(ShutterScreenInfoID, ShutterScreenInfo);
 
-                AddPass(renderGraph, material, resourceData.activeColorTexture, accumulationHandle, prepassHandle,
-                    "Shutter Based Temporal Post-Processing");
+            AddPass(renderGraph, material, resourceData.activeColorTexture, accumulationHandle, prepassHandle,
+                "Shutter Based Temporal Post-Processing");
 
-                AddCopyPass(renderGraph, accumulationHandle, resourceData.activeColorTexture,
-                    "SBTPP Copy Accumulation");
+            AddCopyPass(renderGraph, accumulationHandle, resourceData.activeColorTexture,
+                "SBTPP Copy Accumulation");
         }
     }
 }
