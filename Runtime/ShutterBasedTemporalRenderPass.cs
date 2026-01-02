@@ -86,7 +86,7 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             passData.source = from;
             passData.coc = coc;
             passData.material = material;
-            // builder.UseTexture(passData.source);
+            builder.UseTexture(passData.source);
             builder.UseTexture(passData.coc);
             builder.SetRenderAttachment(to, 0);
             builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
@@ -106,7 +106,7 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             using var builder = renderGraph.AddRasterRenderPass<PrePassData>(name, out var passData);
             passData.material = material;
             passData.source = source;
-            // builder.UseTexture(passData.source);
+            builder.UseTexture(passData.source);
             builder.SetRenderAttachment(target, 0);
             builder.SetRenderFunc((PrePassData data, RasterGraphContext context) =>
                 ExecutePrePass(data, context));
@@ -211,7 +211,7 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
 
             TextureHandle prepassHandle = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, CoCName, false,
                 FilterMode.Bilinear);
-
+            
             AddPrePass(renderGraph, cocTarget switch {
                 PhysicalCamera.CoCTarget.ActiveColor => resourceData.activeColorTexture,
                 PhysicalCamera.CoCTarget.Accumulation => accumulationHandle,
