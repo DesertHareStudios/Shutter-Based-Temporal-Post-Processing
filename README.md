@@ -14,7 +14,7 @@ Although this is a temporal solution, it plays well with URP's TAA and Unity's S
 * Open the **Add** (+) menu in the Package Manager's toolbar
 * Select **Install package from git URL** from the install menu. A text box and an **install** button appear.
 * Enter the following Git url in the text box:
-```https://github.com/DesertHareStudios/Shutter-Based-Temporal-Post-Processing.git#v0.3.0```
+```https://github.com/DesertHareStudios/Shutter-Based-Temporal-Post-Processing.git#v0.3.1```
 * Select **Install**
 
 ## Requirements
