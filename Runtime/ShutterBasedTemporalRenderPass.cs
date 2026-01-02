@@ -47,14 +47,19 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
         //Intensity, Focus Distance, FrameIndex, Scattering
         public Vector4 ShutterInfo = Vector4.zero;
         public int dofResolutionDownscaler = 2;
-        
+
         private Vector4 ShutterScreenInfo = Vector4.one;
         public PhysicalCamera.CoCTarget cocTarget = PhysicalCamera.CoCTarget.Accumulation;
         private Material material;
         private Material preMaterial;
 
+#if UNITY_EDITOR
+        public bool debugCoC = false;
+#endif
+
         public ShutterBasedTemporalRenderPass(ShutterBasedTemporalPostProcessingData data) {
             ConfigureInput(ScriptableRenderPassInput.Color);
+            ConfigureInput(ScriptableRenderPassInput.Depth);
             renderPassEvent = RenderPassEvent.AfterRenderingTransparents;
             preMaterial = new Material(data.prepassShader);
             material = new Material(data.sbtppShader);
@@ -64,31 +69,10 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             accumulation.Release();
         }
 
-        protected class CopyPassData {
-            public TextureHandle source;
-            public TextureHandle target;
-        }
-
         private class PassData {
             public TextureHandle source;
             public TextureHandle coc;
             public Material material;
-        }
-
-        protected static void ExecuteCopyPass(CopyPassData data, RasterGraphContext context) {
-            Blitter.BlitTexture(context.cmd, data.source, Vector2.one, 0f, true);
-        }
-
-        private static void AddCopyPass(RenderGraph renderGraph, TextureHandle from,
-            TextureHandle to,
-            string name = "Copy") {
-            using var builder = renderGraph.AddRasterRenderPass<CopyPassData>(name, out var passData);
-            passData.source = from;
-            passData.target = to;
-            builder.UseTexture(passData.source);
-            builder.SetRenderAttachment(passData.target, 0);
-            builder.SetRenderFunc((CopyPassData data, RasterGraphContext context) =>
-                ExecuteCopyPass(data, context));
         }
 
         static void ExecutePass(PassData data, RasterGraphContext context) {
@@ -102,16 +86,65 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             passData.source = from;
             passData.coc = coc;
             passData.material = material;
-            builder.UseTexture(passData.source);
+            // builder.UseTexture(passData.source);
             builder.UseTexture(passData.coc);
             builder.SetRenderAttachment(to, 0);
             builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
                 ExecutePass(data, context));
         }
 
+        protected class PrePassData {
+            public TextureHandle source;
+            public Material material;
+        }
+
+        protected static void ExecutePrePass(PrePassData data, RasterGraphContext context) {
+            Blitter.BlitTexture(context.cmd, data.source, Vector2.one, data.material, 0);
+        }
+
+        private static void AddPrePass(RenderGraph renderGraph, TextureHandle source, TextureHandle target, Material material, string name = "Prepass") {
+            using var builder = renderGraph.AddRasterRenderPass<PrePassData>(name, out var passData);
+            passData.material = material;
+            passData.source = source;
+            // builder.UseTexture(passData.source);
+            builder.SetRenderAttachment(target, 0);
+            builder.SetRenderFunc((PrePassData data, RasterGraphContext context) =>
+                ExecutePrePass(data, context));
+        }
+
+        protected class CopyPassData {
+            public TextureHandle source;
+        }
+
+        protected static void ExecuteCopyPass(CopyPassData data, RasterGraphContext context) {
+            Blitter.BlitTexture(context.cmd, data.source, Vector2.one, 0f, true);
+        }
+
+        private static void AddCopyPass(RenderGraph renderGraph, TextureHandle from,
+            TextureHandle to,
+            string name = "Copy") {
+            using var builder = renderGraph.AddRasterRenderPass<CopyPassData>(name, out var passData);
+            passData.source = from;
+            builder.UseTexture(passData.source);
+            builder.SetRenderAttachment(to, 0);
+            builder.SetRenderFunc((CopyPassData data, RasterGraphContext context) =>
+                ExecuteCopyPass(data, context));
+        }
+
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData) {
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
+
+            Shader.SetGlobalVector(ShutterInfoID, ShutterInfo);
+            
+#if UNITY_EDITOR
+            if (debugCoC) {
+                Shader.EnableKeyword("_SBTPP_DEBUG_COC");
+            }
+            else {
+                Shader.DisableKeyword("_SBTPP_DEBUG_COC");
+            }
+#endif
 
             var desc = cameraData.cameraTargetDescriptor;
             desc.msaaSamples = 1;
@@ -168,27 +201,22 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             desc.width /= dofResolutionDownscaler;
             desc.height /= dofResolutionDownscaler;
 
-            ShutterScreenInfo.x = 1f / desc.width;
-            ShutterScreenInfo.y = 1f / desc.height;
-            ShutterScreenInfo.z = 0.5f / desc.width;
-            ShutterScreenInfo.w = 0.5f / desc.height;
+            ShutterScreenInfo.x = 0.5f / desc.width;
+            ShutterScreenInfo.y = 0.5f / desc.height;
+            ShutterScreenInfo.z = 0.25f / desc.width;
+            ShutterScreenInfo.w = 0.25f / desc.height;
+            
+            preMaterial.SetVector(ShutterScreenInfoID, ShutterScreenInfo);
+            material.SetVector(ShutterScreenInfoID, ShutterScreenInfo);
 
             TextureHandle prepassHandle = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, CoCName, false,
                 FilterMode.Bilinear);
 
-            preMaterial.SetVector(ShutterInfoID, ShutterInfo);
-            preMaterial.SetVector(ShutterScreenInfoID, ShutterScreenInfo);
-
-            RenderGraphUtils.BlitMaterialParameters cocParameters = new(cocTarget switch {
-                    PhysicalCamera.CoCTarget.ActiveColor => resourceData.activeColorTexture,
-                    PhysicalCamera.CoCTarget.Accumulation => accumulationHandle,
-                    _ => resourceData.activeColorTexture
-                }, prepassHandle, preMaterial, 0);
-            renderGraph.AddBlitPass(cocParameters, "SBTPP CoC");
-
-            material.SetVector(ShutterInfoID, ShutterInfo);
-            material.SetVector(ShutterScreenInfoID, ShutterScreenInfo);
-
+            AddPrePass(renderGraph, cocTarget switch {
+                PhysicalCamera.CoCTarget.ActiveColor => resourceData.activeColorTexture,
+                PhysicalCamera.CoCTarget.Accumulation => accumulationHandle,
+                _ => resourceData.activeColorTexture}, prepassHandle, preMaterial, "SBTPP Prepass");
+            
             AddPass(renderGraph, material, resourceData.activeColorTexture, accumulationHandle, prepassHandle,
                 "Shutter Based Temporal Post-Processing");
 

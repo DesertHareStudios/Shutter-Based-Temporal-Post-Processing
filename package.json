@@ -1,11 +1,11 @@
 {
     "name": "com.desertharestudios.sbtpp",
-    "version": "0.2.0",
+    "version": "0.3.1",
     "displayName": "Shutter Based Temporal Post-Processing",
     "description": "Framerate-aware physical camera post-processing for Unity's Universal Render Pipeline",
     "unity": "6000.3",
     "dependencies": {
-        "com.unity.render-pipelines.universal": "17.0.4"
+        "com.unity.render-pipelines.universal": "17.3.0"
     },
     "keywords": [
         "physical",

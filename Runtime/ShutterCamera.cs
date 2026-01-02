@@ -21,7 +21,8 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
         }
 
         public bool controlTemporalAntiAliasingSettings = true;
-        
+        public bool depthOfFieldJitter = true;
+
         private Camera target;
         private UniversalAdditionalCameraData cameraData;
         private Transform cameraTransform;
@@ -100,37 +101,46 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             pass.ShutterInfo.z = frameIndex % 64;
             pass.ShutterInfo.w = normalizedAperture;
 
-            if (controlTemporalAntiAliasingSettings && cameraData.antialiasing == AntialiasingMode.TemporalAntiAliasing) {
+            if (controlTemporalAntiAliasingSettings &&
+                cameraData.antialiasing == AntialiasingMode.TemporalAntiAliasing) {
                 cameraData.taaSettings.baseBlendFactor = Mathf.LerpUnclamped(0.6f, 0.98f, intensity);
                 cameraData.taaSettings.jitterScale = 1f - (normalizedAperture * intensity);
                 cameraData.taaSettings.jitterScale *= cameraData.taaSettings.jitterScale;
                 cameraData.taaSettings.jitterScale = 1f - cameraData.taaSettings.jitterScale;
                 cameraData.taaSettings.contrastAdaptiveSharpening = 1f - normalizedAperture;
                 float shutterMS = lens.shutterSpeed * 100f;
-                cameraData.taaSettings.varianceClampScale = Mathf.LerpUnclamped(0.6f, 1.2f, shutterMS / (shutterMS + 1f));
+                cameraData.taaSettings.varianceClampScale =
+                    Mathf.LerpUnclamped(0.6f, 1.2f, shutterMS / (shutterMS + 1f));
             }
 
-            if (intensity <= 0f) return;
+
+#if UNITY_EDITOR
+            if (pass.debugCoC) return;
+#endif
+
+            if (!depthOfFieldJitter) return;
             
+            if (intensity <= 0f) return;
+
             apertureJitter.y = Mathf.Abs(Random.value * 0.5f);
             apertureJitter.y *= intensity * intensity;
             apertureJitter.y *= (focalLength / lens.aperture) / 2f;
             apertureJitter.y /= 1000f;
-            
+
             if (apertureJitter.y <= 0f) return;
-            
+
             apertureJitter.x = Random.value * 2f * Mathf.PI;
-            
+
             float bladeCount = lens.blades;
             float curvature = lens.CurrentCurvature;
-            
+
             float nt = Mathf.Cos(Mathf.PI / bladeCount);
             float dt = Mathf.Cos(apertureJitter.x - ((2f * Mathf.PI) / bladeCount) *
                 Mathf.Floor((bladeCount * apertureJitter.x + Mathf.PI) / (2f * Mathf.PI)));
             float r = apertureJitter.y * Mathf.Pow(nt / dt, curvature);
             float u = r * Mathf.Cos(apertureJitter.x);
             float v = r * Mathf.Sin(apertureJitter.x);
-            
+
             apertureJitter.x = u;
             apertureJitter.y = v;
             focusPoint = cameraTransform.position + (cameraTransform.forward * lens.focusDistance);
@@ -151,9 +161,9 @@ namespace DesertHareStudios.ShutterBasedTemporalPostProcessing {
             dt2 = dt1;
             dt1 = dt0;
             dt0 = Time.unscaledDeltaTime;
-            
+
             if (!didJitter) return;
-            
+
             cameraTransform.position = originalPosition;
             cameraTransform.rotation = originalRotation;
         }
